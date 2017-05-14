@@ -1,0 +1,5 @@
+#!/bin/sh -x
+prefix=/usr/local
+rm -rf ${prefix}/include/ocrofst
+rm -rf ${prefix}/lib/libocrofst.*
+rm -rf ${prefix}/bin/test-main

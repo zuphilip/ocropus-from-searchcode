@@ -1,0 +1,97 @@
+#!/bin/bash -ex
+
+true
+true make sure everything is downloaded and has been cleaned up 
+true
+
+if test -d book; then
+    echo "data already downloaded"
+else
+    wget http://iupr1.cs.uni-kl.de/~tmb/ocropus-data/uw3-500.tgz
+    tar -zxvf uw3-500.tgz
+fi
+
+set +x
+rm -f book/????/??????.aligned
+rm -f book/????/??????.rseg.png
+rm -f book/????/??????.cseg.png
+rm -f book/????/??????.lattice
+rm -f book/????/??????.txt
+rm -f book/????/??????.xheight
+rm -f book/????/??????.baseline
+set -x
+
+true
+true compute raw recognition results
+true
+
+ocropus-lattices 'book/????/??????.bin.png'
+
+true
+true integrate recognition results with a language model
+true
+
+ocropus-ngraphs 'book/????/??????.lattice'
+
+true
+true compute the error rate relative to the ground truth data
+true
+
+ocropus-errs 'book/000?/??????.gt.txt'
+
+true
+true generate text output
+true
+
+set +x
+for file in book/????/??????.txt; do
+    echo "$file	`cat $file`"
+done > book.txt
+set -x
+
+true
+true now let\'s go through the training steps
+true
+
+true
+true align recognition results with ground truth
+true
+
+ocropus-align 'book/????/??????.lattice'
+
+true
+true extract character shapes into the HDF5 book.h5 database
+true you can look at this database with ocropus-cedit book.h5
+true
+
+rm -rf book.h5
+ocropus-lattices --extract book.h5 'book/????/??????.bin.png'
+
+true
+true compute a tree vector quantizer for the characters
+true in book.h5
+true
+
+ocropus-tsplit -d book.h5 -o book.tsplit --maxsplit 100
+
+true
+true compute terminal classifiers for each VQ bucket;
+true this results in a character model that can be used for recognition
+true
+
+ocropus-tleaves -d book.h5 -s book.tsplit -o book.cmodel
+
+true
+true compute the per-character error rate from the classifier
+true note that you should really do this with separate training/test
+true sets and the -t option is convenient for that
+
+ocropus-db predict -m book.cmodel book.h5
+
+true
+true use the new character model for recognition of course, this
+true will be worse than the original model, since we didn\'t use
+true a lot of characters for training
+true
+
+ocropus-lattices 'book/00??/??????.bin.png' -m book.cmodel

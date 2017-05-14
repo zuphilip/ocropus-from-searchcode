@@ -1,0 +1,343 @@
+#!/usr/bin/env python
+
+### FIXME
+### -- replace comboboxes with file menu
+### -- check for "path exists"
+### -- add editors for ground truth
+
+from optparse import OptionParser
+import re,os,glob,os.path,traceback
+import sys
+import matplotlib 
+matplotlib.use('GTK') 
+from matplotlib.figure import Figure 
+from matplotlib.axes import Subplot 
+from matplotlib.backends.backend_gtk import FigureCanvasGTK, NavigationToolbar 
+from numpy import arange,sin, pi 
+import pygtk 
+pygtk.require("2.0") 
+import gtk 
+import gtk.glade
+import gobject
+from pylab import *
+import gnome
+from matplotlib import patches
+import scipy
+import ocropus
+import glob
+
+import ocrolib
+from ocrolib import fstutils
+
+from matplotlib.backends.backend_gtk import FigureCanvasGTK as FigureCanvas
+from matplotlib.backends.backend_gtk import NavigationToolbar2GTK as NavigationToolbar
+
+#from matplotlib.backends.backend_gtkcairo import FigureCanvasGTKCairo as FigureCanvas
+#from matplotlib.backends.backend_gtkcairo import NavigationToolbar2Cairo as NavigationToolbar
+#from matplotlib.backends.backend_gtkagg import FigureCanvasGTKAgg as FigureCanvas
+#from matplotlib.backends.backend_gtkagg import NavigationToolbar2GTKAgg as NavigationToolbar
+
+parser = OptionParser(usage="""
+%prog [options] line1.png line2.png ...
+
+Interactively explore line recognition and line recognition errors.
+""")
+parser.add_option("-v","--verbose",help="verbose",action="store_true")
+parser.add_option("-s","--spaces",help="count spaces",action="store_true")
+parser.add_option("-c","--case",help="case sensitive",action="store_true")
+parser.add_option("-B","--nbest",help="nbest chars",default=10,type="int")
+parser.add_option("-M","--maxccost",help="maxcost for characters in recognizer",default=10.0,type="float")
+parser.add_option("-b","--beam",help="beam width",default=1000,type="int")
+parser.add_option("-R","--recognizer",help="line model",default=None)
+parser.add_option("-L","--langmod",help="language model",default=None)
+(options,args) = parser.parse_args()
+
+if len(args)<1:
+    parser.print_help()
+    sys.exit(0)
+
+iconwidth = 200
+lscale = 1.0
+
+def readfile(file):
+    with open(file) as stream:
+        return stream.read()
+
+def gtk_yield():
+    while gtk.events_pending():
+       gtk.main_iteration(False)
+
+def numpy2pixbuf(a):
+    """Convert a numpy array to a pixbuf."""
+    if len(a.shape)==3:
+        data = zeros(list(a.shape),'B')
+        data[:,:,:] = 255*a
+        return gtk.gdk.pixbuf_new_from_array(data,gtk.gdk.COLORSPACE_RGB,8)
+    elif len(a.shape)==2:
+        data = zeros(list(a.shape)+[3],'B')
+        data[:,:,0] = 255*a
+        data[:,:,1] = 255*a
+        data[:,:,2] = 255*a
+        return gtk.gdk.pixbuf_new_from_array(data,gtk.gdk.COLORSPACE_RGB,8)
+
+def float_sort(model,x,y,col):
+    x = model[x][col]
+    y = model[y][col]
+    if y=="": return -1
+    if x=="": return 1
+    if float(x)<float(y): return -1
+    if float(x)>float(y): return 1
+    return 0    
+
+def line_image(file):
+    base,ext = ocrolib.allsplitext(file)
+    s = base+".bin.png"
+    if os.path.exists(s): return s
+    return file
+
+def seg2pixbuf(rseg):
+    w,h = rseg.shape
+    if 1:
+        colors = zeros((w,h,3))
+        colors[:,:,0] = sin(rseg)
+        colors[:,:,1] = sin(9.3*rseg)
+        colors[:,:,2] = sin(11.4*rseg)
+        colors[:,:,:] /= sqrt(sum(colors**2,axis=2)[:,:,newaxis])
+        colors = 127.0*colors+1.0
+        colors = array(colors,'B')
+    else:
+        colors = zeros((10,10,3),'B')
+    rseg = gtk.gdk.pixbuf_new_from_array(colors,gtk.gdk.COLORSPACE_RGB,8)
+    return rseg
+
+def read_costs(file):
+    costs = []
+    with open(file) as stream:
+        for line in stream.readlines():
+            fields = line.split()
+            costs.append(float(fields[1]))
+    return array(costs)
+
+class LineWindow: 
+    def __init__(self): 
+        self.file = None
+        self.lmodel = None
+        self.linerec = None
+        
+        gladefile = ocrolib.findfile("ocroex-browselrecs.glade")
+        self.windowname = "linerecs" 
+        self.wtree = gtk.glade.XML(gladefile,self.windowname) 
+        self.window = self.wtree.get_widget(self.windowname)
+        dic = {
+            "on_window1_destroy" : gtk.main_quit,
+            "on_recognizer_changed" : self.recognizer_update,
+            "on_langmod_changed" : self.langmod_update,
+            "on_run_recognizer_clicked" : self.run_recognizer,
+            "on_record_clicked" : self.record,
+            "on_linelist_row_activated" : self.linelist_row,
+            }
+        self.wtree.signal_autoconnect(dic)
+        self.linelist = self.wtree.get_widget("linelist")
+        self.lines = gtk.ListStore(str,str,str,gtk.gdk.Pixbuf,str,str)
+        self.headers = ["File","Errs","Cost","Line","Output","GT"]
+        self.types = ["text","text","text","pixbuf","text","text"]
+        self.lines.set_sort_func(1,float_sort,1)
+        self.lines.set_sort_func(2,float_sort,2)
+        self.lines.set_sort_func(4,float_sort,4)
+        self.lines.set_sort_func(5,float_sort,5)
+        self.linelist.set_model(self.lines)
+        self.setupTreeView()
+        self.details = self.wtree.get_widget("details")
+
+        self.recognizers = gtk.ListStore(str)
+        self.recognizers.append(["none"])
+        models = glob.glob("*.model")
+        models.sort()
+        for model in models:
+            self.recognizers.append([model])
+        models = glob.glob("*.cmodel")
+        models.sort()
+        for model in models:
+            self.recognizers.append([model])
+        self.recognizer = self.wtree.get_widget("recognizer")
+        self.recognizer.set_model(self.recognizers)
+        self.recognizer.set_text_column(0)
+        for i in range(len(self.recognizers)):
+            if self.recognizers[i][0]=="default.model":
+                self.recognizer.set_active(i)
+                break
+
+        self.segmenters = gtk.ListStore(str)
+        cl = ocrolib.ComponentList()
+        for i in range(cl.length()):
+            if cl.kind(i)!="ISegmentLine": continue
+            name = " "+cl.name(i); name = name[1:]
+            print name
+            self.segmenters.append([name])
+        print [self.segmenters[i][0] for i in range(len(self.segmenters))]
+        self.segmenter = self.wtree.get_widget("segmenter")
+        self.segmenter.set_model(self.segmenters)
+        self.segmenter.set_text_column(0)
+        for i in range(len(self.segmenters)):
+            if self.segmenters[i][0]=="CurvedCutWithCcSegmenter":
+                self.segmenter.set_active(i)
+                break
+
+        active = 0
+        index = 0
+        self.langmods = gtk.ListStore(str)
+        self.langmods.append(["none"])
+        self.langmods.append(["*.txt"])
+        self.langmods.append(["*.gt.txt"])
+        for model in glob.glob("*.fst"):
+            self.langmods.append([model])
+        self.langmod = self.wtree.get_widget("langmod")
+        self.langmod.set_model(self.langmods)
+        self.langmod.set_text_column(0)
+        for i in range(len(self.langmods)):
+            if self.langmods[i][0]=="default.fst":
+                self.langmod.set_active(i)
+                break
+
+        self.last_recognizer = None
+        self.last_langmod = None
+        self.window.show_all()
+    def setupTreeView(self):
+        headers = self.headers
+        types = self.types
+        for i in range(len(headers)):
+            if types[i]=="pixbuf":
+                renderer = gtk.CellRendererPixbuf()
+                col = gtk.TreeViewColumn(headers[i],renderer,pixbuf=i)
+                col.pack_start(renderer)
+            else:
+                renderer = gtk.CellRendererText()
+                col = gtk.TreeViewColumn(headers[i],renderer,text=i)
+                col.pack_start(renderer)
+            col.set_sort_column_id(i)
+            self.linelist.append_column(col)
+        self.linelist.show()
+    def addImages(self,images):
+        """Set the store for the target class."""
+        for image in images:
+            pixbuf = gtk.gdk.pixbuf_new_from_file(line_image(image))
+            w = pixbuf.get_width()
+            h = pixbuf.get_height()
+            scale = max(w/500.0,h/20.0)
+            if scale>1:
+                pixbuf = pixbuf.scale_simple(int(w/scale),int(h/scale),gtk.gdk.INTERP_BILINEAR)
+            base = re.sub(r'.[^/.]*$','',image)
+            gt = ""
+            gtfile = base+".gt.txt"
+            if os.path.exists(gtfile): gt = readfile(gtfile)
+            out = ""
+            outfile = base+".txt"
+            if os.path.exists(outfile): out = readfile(outfile)
+            cost = 0.0
+            costfile = base+".cseg.gt.costs"
+            if os.path.exists(costfile): cost = sum(read_costs(costfile))
+            # errs line out gt cost
+            row = [image,"","%6.2f"%cost,pixbuf,out,gt]
+            self.lines.append(row)
+        print row
+        self.linelist.set_model(self.lines)
+    def recognizeAll(self):
+        pass
+    def record(self,*args):
+        pass
+    def detail(self,*args):
+        for arg in args:
+            self.buffer.insert(self.buffer.get_end_iter(),arg)
+    def detail_pixbuf(self,pixbuf,scale=1.0):
+        if scale!=1.0:
+            w = pixbuf.get_width()
+            h = pixbuf.get_height()
+            pixbuf = pixbuf.scale_simple(int(w*scale),int(h*scale),
+                                         gtk.gdk.INTERP_BILINEAR)
+        self.buffer.insert_pixbuf(self.buffer.get_end_iter(),pixbuf)
+    def linelist_row(self,view,index,column):
+        self.buffer = gtk.TextBuffer()
+        self.details.set_buffer(self.buffer)
+        row = self.lines[index]
+        file = row[0]
+        print file
+        base,_ = ocrolib.allsplitext(file)
+        self.detail(file+"\n\n")
+        self.detail_pixbuf(gtk.gdk.pixbuf_new_from_file(line_image(file)),lscale)
+        self.detail("\n\n")
+        for suffix in ["",".gt"]:
+            if suffix=="":
+                self.detail("\n\n========== recognition result ==========\n\n")
+            elif suffix==".gt":
+                self.detail("\n\n========== ground truth ==========\n\n")
+            if os.path.exists(base+".rseg"+suffix+".png"):
+                self.detail("\n\nrseg:\n\n")
+                rseg = ocrolib.read_line_segmentation(base+".rseg"+suffix+".png")
+                colors = seg2pixbuf(rseg)
+                self.detail_pixbuf(colors,lscale)
+                self.detail("\n\n")
+            cseg = None
+            if os.path.exists(base+".cseg"+suffix+".png"):
+                self.detail("\n\ncseg:\n\n")
+                cseg = ocrolib.read_line_segmentation(base+".cseg"+suffix+".png")
+                colors = seg2pixbuf(cseg)
+                self.detail_pixbuf(colors,lscale)
+                self.detail("\n\n")
+            if cseg is not None and os.path.exists(base+suffix+".txt"):
+                image = ocrolib.read_image_gray(file)
+                image = amax(image)-image
+                grouper = ocrolib.StandardGrouper(maxrange=1,maxdist=1)
+                grouper.setSegmentation(cseg)
+                result = readfile(base+suffix+".txt")
+                self.detail("[%s]\n"%result)
+                self.detail("\ngrouper %d len %d len_no_space %d\n\n"%
+                    (grouper.length(),len(result),len(re.sub(' ','',result))))
+                if abs(grouper.length()-len(result))>1:
+                    result = re.sub(' ','',result)
+                costs = None
+                if os.path.exists(base+suffix+".costs"):
+                    costs = read_costs(base+suffix+".costs")
+                for i in range(grouper.length()):
+                    try:
+                        if result[i]==' ': continue
+                        raw,mask = grouper.extractWithMask(image,i,1)
+                        img = 1.0-mask/255.0
+                        self.detail_pixbuf(numpy2pixbuf(img))
+                        if costs is not None:
+                            self.detail(" [%s] %d   "%(result[i],int(10*costs[i])))
+                        else:
+                            self.detail(" [%s]  "%result[i])
+                        if (i+1)%10==0: self.detail("\n")
+                    except:
+                        traceback.print_exc()
+                        self.detail(" [oops]   ")
+                self.detail("\n")
+    def recognizer_update(self,*args):
+        pass
+    def segmenter_update(self,*args):
+        pass
+    def recognizer_load(self,file):
+        pass
+    def langmod_update(self,*args):
+        pass
+    def langmod_load(self,lmodel_name):
+        pass
+    def run_recognizer(self,*args):
+        pass
+
+
+def main():
+    app = LineWindow()
+    if len(args)==1 and os.path.isdir(args[0]):
+        app.addImages(glob.glob(args[0]+"/????/??????.png"))
+    else:
+        app.addImages(args)
+    if options.langmod is not None:
+        app.langmod_load(options.langmod)
+        app.langmod.append_text(options.langmod)
+    if options.recognizer is not None:
+        app.recognizer_load(options.recognizer)
+        app.recognizer.append_text(options.recognizer)
+    gtk.main()
+
+main()

@@ -1,0 +1,71 @@
+#!/usr/bin/python
+
+# make the clustering class-specific
+
+import sys,os,re,glob,math,glob,signal,traceback,codecs,time
+import fcntl
+import matplotlib,tables
+if "DISPLAY" not in os.environ: matplotlib.use("AGG")
+else: matplotlib.use("GTK")
+from scipy.ndimage import interpolation
+from pylab import *
+from optparse import OptionParser
+from multiprocessing import Pool
+import ocrolib
+from ocrolib import number_of_processors,die
+from ocrolib.ligatures import lig
+from ocrolib.lineest import TrainedLineGeometry,make_normalizer
+from ocrolib import lineest
+from ocrolib import lineseg,morph,linerec,improc,lineproc,h5utils
+from ocrolib.toplevel import *
+
+import warnings,numpy
+warnings.simplefilter('ignore',numpy.RankWarning)
+warnings.filterwarnings('error','.*invalid value.*')
+
+signal.signal(signal.SIGINT,lambda *args:sys.exit(1))
+
+import argparse
+parser = argparse.ArgumentParser(description = """Dewarps textlines and rescales them to a standard x-height.""")
+parser.add_argument("-X","--exec",dest="execute",help="execute before anything else (usually used for imports)",default="None")
+parser.add_argument('-d',"--baselinedegree",type=int,default=1,help="degree of baseline model")
+parser.add_argument('-e','--lineest',default=ocrolib.default.lineest,help="line geometry model (%(default)s)")
+parser.add_argument('-l','--height',default=32,type=int,help="target line height")
+parser.add_argument('-x','--xheightfrac',default=0.5,type=float,help="target xheight frac")
+parser.add_argument('-b','--baselinefrac',default=0.8,type=float,help="target baseline frac")
+parser.add_argument('files',nargs="*",default=[],help="text line files")
+
+args = parser.parse_args()
+args.files = ocrolib.glob_all(args.files)
+if len(args.files)==0:
+    parser.print_help()
+    sys.exit(0)
+
+target_height = args.height
+exec args.execute
+print "# target height",target_height
+
+lnorm = lineest.load_normalizer(args.lineest)
+print "lnorm",lnorm
+
+def process1(fname):
+    base,_ = ocrolib.allsplitext(fname)
+    print "===",fname
+    limage = ocrolib.read_image_gray(fname)
+    lnorm.measure(amax(limage)-limage)
+    limage = lnorm.normalize(limage,cval=amax(limage))
+    ocrolib.write_image_gray(base+".dew.png",limage)
+    if os.path.exists(base+".cseg.png"):
+        cseg = ocrolib.read_line_segmentation(base+".cseg.png")
+        cseg = lnorm.normalize(cseg,order=0,dtype=dtype('i'),cval=0)
+        ocrolib.write_line_segmentation(base+".dcs.png",cseg)
+
+
+
+for fname in args.files:
+    try:
+        process1(fname)
+    except ocrolib.CheckWarning as warning:
+        print warning
+    except:
+        traceback.print_exc()

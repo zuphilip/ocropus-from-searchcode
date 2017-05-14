@@ -1,0 +1,39 @@
+iulib - the image understanding library
+http://code.google.com/p/iulib/
+
+Version 0.4 (2008-05-01)
+
+The packages you need to install iulib are listed in ubuntu-packages.
+
+On Ubuntu 9.04, you can install with:
+
+    scons
+    sudo scons install
+
+On other platforms, you can install with
+
+    ./build
+    make
+    sudo make install
+    
+Tests are intended for developers and porters. You do not need to run them
+if you are just intending to use iulib.  To run the tests, use:
+
+    make check
+    
+If you get errors relating to "convert" not being found, you may need to
+install the ImageMagick tools.
+
+In order to clean the iulib folder, i.e. remove all compiled files, run:
+
+    make clean
+    
+In order to remove all files installed with 'make install' run:
+
+    make uninstall
+
+or run
+
+    sudo ./uninstall
+
+(These do slightly different things.)

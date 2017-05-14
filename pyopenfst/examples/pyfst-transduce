@@ -1,0 +1,22 @@
+#!/usr/bin/python
+
+import sys,os
+import openfst
+
+str = openfst.StdVectorFst()
+str.AddString(sys.argv[1])
+str.Write("str.fst")
+
+fst = openfst.Read(sys.argv[2])
+
+openfst.ArcSortOutput(str)
+openfst.ArcSortInput(fst)
+
+result = openfst.StdVectorFst()
+openfst.Compose(str,fst,result)
+openfst.ProjectOutput(result)
+
+best = openfst.StdVectorFst()
+openfst.ShortestPath(result,best,1)
+
+print openfst.GetString(best)

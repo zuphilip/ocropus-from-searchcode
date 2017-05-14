@@ -1,0 +1,10 @@
+#!/bin/bash -ex
+
+par=4
+rm -rf book
+ocropus-nlbin newspaper-page.jpg -o book
+ocropus-gpageseg book/????.bin.png --maxlines 1000 --maxseps 10 -b
+ocropus-rpred -Q $par book/????/??????.bin.png
+ocropus-gtedit html book/????/??????.bin.png
+ocropus-hocr book/????.pseg.png -o book.html
+ocropus-visualize-results book

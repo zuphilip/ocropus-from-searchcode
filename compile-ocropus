@@ -1,0 +1,109 @@
+#!/bin/bash
+
+set -o errexit
+
+echo please sudo now so that installs work
+sudo id
+
+# compile iulib
+
+(
+cd iulib
+scons -c
+sudo sh uninstall
+sudo sh ubuntu-packages 
+scons -j 4 sdl=1
+sudo scons -j 4 sdl=1 install
+cd pyswig
+python setup.py build_ext
+sudo python setup.py install
+)
+
+# compile ocrolseg
+
+(
+cd ocrolseg
+make
+sudo python setup.py install
+cd ..
+date;
+)
+
+# compile ocrorast
+
+(
+cd ocrorast
+make
+python setup.py build_ext
+sudo python setup.py install
+cd ..
+date;
+)
+
+# compile ocropy
+
+(
+cd ocropy
+sudo python setup.py install
+cd ..
+date;
+)
+
+# compile ocrofst 
+
+(
+cd ocrofst
+scons -j 4
+sudo scons install
+python setup.py build_ext
+sudo python setup.py install
+cd ..
+date;
+)
+
+# compile openfst 
+
+(
+rm -rf openfst-1.1
+test -f DIST/openfst-1.1.tar.gz && tar -zxvf DIST/openfst-1.1.tar.gz 
+cd openfst-1.1
+./configure
+make -j 4
+sudo make install
+cd ..
+date;
+)
+
+# compile Python bindings for openfst
+
+(
+cd pyopenfst
+make
+cd ..
+date;
+)
+
+# optionally compile FLANN
+
+(
+rm -rf flann-1.6.11-src
+unzip DIST/flann-1.6.11-src.zip
+cd flann-1.6.11-src
+rm -rf build
+mkdir build
+cd build
+cmake .. -DBUILD_MATLAB_BINDINGS=OFF
+make
+sudo make install
+)
+
+# last messages to the user
+
+(echo $LD_LIBRARY_PATH | grep /usr/local/lib) || {
+	echo
+	echo IMPORTANT
+	echo
+	echo You must add /usr/local/lib/ to your LD_LIBRARY_PATH variable or
+	echo "things won't work."
+	echo
+}

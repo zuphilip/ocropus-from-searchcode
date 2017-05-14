@@ -1,0 +1,201 @@
+#!/usr/bin/python
+# -*- encoding: utf-8 -*-
+
+import sys,os,re,glob,math,glob,signal,sqlite3
+import matplotlib
+if "DISPLAY" not in os.environ: matplotlib.use("AGG")
+else: matplotlib.use("GTK")
+from pylab import *
+from optparse import OptionParser
+
+from ocrolib.fgen import *
+from ocrolib import utils
+import ocrolib
+
+class unif:
+    def __init__(self,lo,hi):
+        self.lo = lo
+        self.hi = hi
+    def __call__(self):
+        return rand()*(self.hi-self.lo)+self.lo
+
+class bn:
+    def __init__(self,m,s):
+        self.m = m
+        self.s = s
+    def __call__(self):
+        while 1:
+            x = randn()
+            if x>-2 and x<2: break
+        return x*self.s+self.m
+
+class c:
+    def __init__(self,c):
+        self.c = c
+    def __call__(self):
+        return self.c
+
+scale = unif(1.0,4.0)
+aspect = unif(0.9,1.1)
+margin = unif(0.0,2.0)
+noise = unif(0.0,0.1)
+maxdelta = unif(0.0,2.0)
+rotation = unif(-1.0,1.0) # in degrees
+inner = c(1.0)
+
+parser = OptionParser("""
+usage: %prog [options] ...
+
+Generates characters from TrueType fonts and stores them in a character database.
+""")
+parser.add_option("-o","--output",help="output file",default="chargen.db")
+parser.add_option("-D","--display",help="display chars",action="store_true")
+parser.add_option("-r","--rel",help="output geometry information",action="store_true")
+parser.add_option("-R","--record",help="record parameter info in database",action="store_true")
+parser.add_option("-v","--verbose",help="verbose output",action="store_true")
+parser.add_option("-c","--classes",help="list of classes (one per line)",default=None)
+parser.add_option("-s","--sizes",help="list of sizes (Python expression)",default="range(24,38)")
+parser.add_option("-f","--specs",help="list of font specs",default=None)
+parser.add_option("-n","--nvariants",help="number of variants",default=8,type=int)
+parser.add_option("-Q","--parallel",help="number of parallel processes",default=0,type=int)
+parser.add_option("-e","--eval",help="evaluate expressions (for additional options)",default="None")
+parser.add_option("-i","--inner",help="inner offset for degradation (<1: some broken chars)",default=1,type=float)
+(options,args) = parser.parse_args()
+
+exec options.eval
+
+latin_and_ligs = """
+!  " $ % & ' ( ) * + , - .  / 
+0 1 2 3 4 5 6 7 8 9 
+: ; < = > ?  @ 
+A B C D E F G H I J K L M N O P Q R S T U V W X Y Z 
+[ \ ] ^ ` 
+a b c d e f g h i j k l m n o p q r s t u v w x y z 
+{ | }
+
+ä ö ü Ä Ö Ü ß
+
+000 00 La Th ac ai ak al all am an ar as be bo ca co ct
+di dr ec ed ee es ff ffi fl fr ft gh gi gr gu hi il
+in ir is ki li ll ma mi mm ni oc oo pe po re ri rin
+rm rn ro r rs rt ru rv ry se si sl so ss st ta te th ti to tr
+ts tt tu ul um un ur vi wi wn
+"""
+
+extras = """
+a. c. e. m. n. t. z. A. C. E. K. L. M. N. R.
+a, c, e, m, n, t, z, A, C, E, K, L, M, N, R,
+a- b- e- d- g- m- n- o- p- u-
+
+"B "D "F "H "K "L "P "R "T "W "Z "b "h "l
+'B 'D 'F 'H 'K 'L 'P 'R 'T 'W 'Z 'b 'h 'l
+d" f" l" 
+d' f' l'
+"""
+
+if options.rel:
+    print "geometry information not yet implemented in chargen"
+    sys.exit(1)
+
+if options.classes is not None:
+    testset = []
+    with open(options.classes,"r") as stream:
+        for line in stream.readlines():
+            line = line[:-1]
+            testset.append(line)
+else:
+    testset = sorted(list(set(latin_and_ligs.split())))
+n = len(testset)
+
+sizes = eval(options.sizes)
+
+if options.specs is not None:
+    specs = []
+    with open(options.specs,"r") as stream:
+        for line in stream.readlines():
+            line = line[:-1]
+            specs.append(line)
+else:
+    families = ['DejaVu Sans', 'DejaVu Sans Mono', 'DejaVu Serif', 'FreeMono', 'FreeSans', 'FreeSerif', 'cmr10']
+    styles = [ '', ' italic', ' bold' ]
+    specs = []
+    for family in families:
+        for style in styles:
+            specs.append(family+style)
+
+print "#specs",len(specs)
+print "#variants",options.nvariants
+print "sizes",options.sizes
+print 
+
+# quick run-through to make sure all the fonts exist
+for spec in specs:
+    pango_render_string("hello",spec=spec,size=30,pad=10,markup=0)
+
+if os.path.exists(options.output):
+    print options.output,"exists; please remove"
+    sys.exit(1)
+
+db = sqlite3.connect(options.output)
+db.row_factory = utils.DbRow
+db.text_factory = sqlite3.OptimizedUnicode
+utils.charcolumns(db,"chars")
+db.execute("create index if not exists cls_index on chars (cls)")
+db.commit()
+del db
+
+if options.display: ion(); show(); gray()
+jobs = []
+for spec in specs:
+    for size in sizes:
+        inputs = []
+        jobs.append((spec,size))
+
+def process_arg(arg):
+    db = sqlite3.connect(options.output)
+    db.row_factory = utils.DbRow
+    db.text_factory = sqlite3.OptimizedUnicode
+    db.execute("pragma synchronous=0")
+    spec,size = arg
+    print "loading",spec,size
+    total = 0
+    for d in range(options.nvariants):
+        for i in range(n):
+            c = testset[i]
+            scl = scale()
+            asp = aspect()
+            rot = rotation()
+            image = pango_render_string(c,spec=spec,size=size,pad=10,
+                markup=0,scale=scl,aspect=asp,rotation=rot)
+            image = average(image,axis=2)
+            image = array(image,'f')
+            image /= amax(image)
+            mrg = margin()
+            nse = noise()
+            inn = inner()
+            image = gauss_degrade(image,margin=mrg,noise=nse,inner=inn)
+            mdl = maxdelta()
+            image = gauss_distort([image],maxdelta=mdl)[0]
+            raw = array(image*255,'B')
+            if options.record:
+                css = "s%ds%.2fa%.2fm%.2fn%.2fm%.2fi%.2fr%.2f"%(size,scl,asp,mrg,nse,mdl,inn,rot)
+                utils.dbinsert(db,"chars",image=utils.image2blob(raw),cls=c,count=1,classes=css)
+            else:
+                utils.dbinsert(db,"chars",image=utils.image2blob(raw),cls=c,count=1)
+            total += 1
+            if total%1000==0: db.commit()
+    db.commit()
+    sys.stdout.flush()
+    return None
+
+from multiprocessing import Pool
+
+if options.parallel>1:
+    pool = Pool(processes=options.parallel)
+    result = pool.map(process_arg,jobs)
+else:
+    for arg in jobs:
+        process_arg(arg)
+
+# import objgraph
+# objgraph.show_most_common_types(limit=50)

@@ -1,0 +1,79 @@
+#!/usr/bin/python
+import code,pickle,sys,os,re,traceback
+import matplotlib
+if "DISPLAY" not in os.environ: matplotlib.use("AGG")
+else: matplotlib.use("GTK")
+from optparse import OptionParser
+from pylab import *
+import ocrolib
+from ocrolib import dbtables,improc,mlp,wmodel
+from scipy.ndimage import interpolation
+
+parser = OptionParser("""
+usage: %prog [options] .../.../010001.png ...
+
+Train whitespace classifiers on the given text line images.  Uses the corresponding
+cseg and txt files for training.  All training samples are loaded into memory.
+""")
+
+parser.add_option("-o","--output",help="output file",default="space.model")
+parser.add_option("-s","--suffix",help="suffix for cseg and txt files",default="gt")
+parser.add_option("-v","--verbose",help="verbose output",action="store_true")
+parser.add_option("-c","--cerrors",help="continue even if errors are found",action="store_true")
+parser.add_option("-D","--display",help="display chars",action="store_true")
+
+(options,args) = parser.parse_args()
+
+if len(args)<1:
+    parser.print_help()
+    sys.exit(0)
+
+if os.path.exists(options.output):
+    print options.output,"exists; please remove"
+    sys.exit(1)
+
+ion()
+show()
+gray()
+
+
+ntried = 0
+nfiles = 0
+total = 0
+
+ws = wmodel.WhitespaceModel()
+ws.startTraining()
+
+for fname in args:
+    segments = []
+    text = ""
+    ntried += 1
+
+    try:
+        image = ocrolib.read_image_gray(fname)
+        image = 255-image
+        cseg_file = ocrolib.ffind(fname,"cseg".options.suffix)
+        cseg = ocrolib.read_line_segmentation(cseg_file)
+        txt_file = ocrolib.ffind(fname,"txt",options.suffix)
+        with open(txt_file) as stream: gt = stream.read()
+        gt = re.sub('\n','',gt)
+        nfiles += 1
+    except IOError,e:
+        print "ERROR",e
+        print "# cseg for",fname,"not found (got %d of %d files)"%(nfiles,ntried)
+        continue
+    except Exception,e:
+        traceback.print_exc()
+        continue
+
+    try:
+        ws.trainLineAndCseg(image,cseg,gt)
+    except wmodel.BadGroundTruth:
+        print "# failed to add %s (got %d of %d files), BadGroundTruth"%(fname,nfiles,ntried)
+    except wmodel.BadImage:
+        print "# failed to add %s (got %d of %d files), BadImage"%(fname,nfiles,ntried)
+    
+ws.updateModel()
+
+ocrolib.save_component(options.output,ws)
+

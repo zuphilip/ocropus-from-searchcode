@@ -1,0 +1,19 @@
+#!/usr/bin/python
+
+import sys,os
+import ocrofst
+
+fst1 = ocrofst.OcroFST()
+fst1.load(sys.argv[1])
+fst2 = ocrofst.OcroFST()
+fst2.load(sys.argv[2])
+
+v1,v2,ins,outs,costs = ocrofst.beam_search(fst1,fst2,1000)
+print list(v1)
+print list(v2)
+print list(ins)
+print list(outs)
+print list(costs)
+print
+print " ".join(["%d:%d"%(x/2**16,x%2**16) for x in ins])
+print "".join([unichr(x) for x in outs])

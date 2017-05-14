@@ -1,0 +1,69 @@
+#!/bin/bash -e
+
+echo "================================================================"
+echo "=== This script illustrates training of a simple, initial"
+echo "=== character recognizer from the kind of boxdata training"
+echo "=== files used with Tesseract."
+echo "================================================================"
+echo
+sleep 1
+set -x
+
+boxtar=boxtiff-2.01.deu-f.tar.gz
+
+if test -f $boxtar; then
+    echo $boxtar already downloaded
+else
+    wget -nd http://iupr1.cs.uni-kl.de/~tmb/ocropus-data/$boxtar
+fi
+
+tar -zxvf $boxtar
+
+for image in deu-f/*.tif; do
+    convert -depth 8 $image ${image%%.*}.png
+done
+
+# Start by extracting character data from the tif images.
+# For each input file, tess2h5 will look for a corresponding
+# .box files.  You can examine the resulting character database
+# with "ocropus-cedit boxdata.h5"
+
+ocropus-db tess2h5 deu-f/*.png -o boxdata.h5 
+
+# Compute a vector quantizer for the box data.  We just
+# use a single level here (no tree) because the data set is
+# so small.  
+
+ocropus-tsplit --pca 0.95 --vq 80 -d boxdata.h5 -o boxdata.split 
+
+# Compute terminal classifiers for the boxdata.
+
+ocropus-tleaves -Q 4 -s boxdata.split -d boxdata.h5 -o boxdata.cmodel
+
+# Predict using this data.  Normally, we'd want to use cross-validation
+# (-t ...) here and during training, but let's not bother.
+
+ocropus-db predict -m boxdata.cmodel boxdata.h5
+
+# Now let's segment one of the pages...
+
+convert deu-f/fontfile_2.tif page.bin.png
+ocropus-gpageseg page.bin.png
+
+# and apply the new recognizer.
+
+ocropus-lattices -m boxdata.cmodel page/??????.bin.png
+
+set +x
+echo
+echo "================================================================"
+echo "=== You now have a simple Fraktur model, boxdata.cmodel."
+echo "=== "
+echo "=== This is only an initial model.  It isn't using any baseline"
+echo "=== information.  The next training step consists of retraining"
+echo "=== the model by aligning text lines with ground truth (see the"
+echo "=== example in uw3-500)."
+echo "=== "
+echo "=== In addition, you probably should construct a language model."
+echo "=== You can do that with ocropus-ngraphs."
+echo "================================================================"

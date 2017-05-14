@@ -1,0 +1,93 @@
+file /home/tmb/ocropus/ocrofst/SConstruct,line 86:
+	Configure(confdir = .sconf_temp)
+scons: Configure: Checking for C++ library iulib... 
+scons: Configure: ".sconf_temp/conftest_0.cpp" is up to date.
+scons: Configure: The original builder output was:
+  |.sconf_temp/conftest_0.cpp <-
+  |  |
+  |  |
+  |  |#include "iulib/iulib.h"
+  |  |
+  |  |int
+  |  |main() {
+  |  |  
+  |  |return 0;
+  |  |}
+  |  |
+  |
+scons: Configure: ".sconf_temp/conftest_0.o" is up to date.
+scons: Configure: The original builder output was:
+  |g++ -o .sconf_temp/conftest_0.o -c -DDATADIR='"/usr/local/share/ocrofst"' -DDEFAULT_DATA_DIR='"/usr/local/share/ocrofst/models"' -DDEFAULT_EXT_DIR='"/usr/local/share/ocrofst/extensions"' -g -fPIC -O2 -Wall -Wno-sign-compare -Wno-write-strings -Wno-unknown-pragmas -D__warn_unused_result__=__far__ -D_BACKWARD_BACKWARD_WARNING_H=1 -I/usr/local/include .sconf_temp/conftest_0.cpp
+  |
+scons: Configure: ".sconf_temp/conftest_0" is up to date.
+scons: Configure: The original builder output was:
+  |g++ -o .sconf_temp/conftest_0 .sconf_temp/conftest_0.o -L/usr/local/lib -liulib -liulib
+  |
+scons: Configure: (cached) yes
+
+scons: Configure: Checking for C++ header file colib/colib.h... 
+scons: Configure: ".sconf_temp/conftest_1.cpp" is up to date.
+scons: Configure: The original builder output was:
+  |.sconf_temp/conftest_1.cpp <-
+  |  |
+  |  |#include <colib/colib.h>
+  |  |
+  |  |
+  |
+scons: Configure: ".sconf_temp/conftest_1.o" is up to date.
+scons: Configure: The original builder output was:
+  |g++ -o .sconf_temp/conftest_1.o -c -DDATADIR='"/usr/local/share/ocrofst"' -DDEFAULT_DATA_DIR='"/usr/local/share/ocrofst/models"' -DDEFAULT_EXT_DIR='"/usr/local/share/ocrofst/extensions"' -g -fPIC -O2 -Wall -Wno-sign-compare -Wno-write-strings -Wno-unknown-pragmas -D__warn_unused_result__=__far__ -D_BACKWARD_BACKWARD_WARNING_H=1 -I/usr/local/include .sconf_temp/conftest_1.cpp
+  |
+scons: Configure: (cached) yes
+
+scons: Configure: Checking for C library SDL... 
+scons: Configure: ".sconf_temp/conftest_2.c" is up to date.
+scons: Configure: The original builder output was:
+  |.sconf_temp/conftest_2.c <-
+  |  |
+  |  |
+  |  |#include "SDL/SDL.h"
+  |  |
+  |  |int
+  |  |main() {
+  |  |  
+  |  |return 0;
+  |  |}
+  |  |
+  |
+scons: Configure: ".sconf_temp/conftest_2.o" is up to date.
+scons: Configure: The original builder output was:
+  |gcc -o .sconf_temp/conftest_2.o -c -I/usr/local/include .sconf_temp/conftest_2.c
+  |
+scons: Configure: ".sconf_temp/conftest_2" is up to date.
+scons: Configure: The original builder output was:
+  |gcc -o .sconf_temp/conftest_2 .sconf_temp/conftest_2.o -L/usr/local/lib -liulib -liulib -lSDL
+  |
+scons: Configure: (cached) yes
+
+scons: Configure: Checking for C library SDL_gfx... 
+scons: Configure: ".sconf_temp/conftest_3.c" is up to date.
+scons: Configure: The original builder output was:
+  |.sconf_temp/conftest_3.c <-
+  |  |
+  |  |
+  |  |#include "SDL/SDL_gfxPrimitives.h"
+  |  |
+  |  |int
+  |  |main() {
+  |  |  
+  |  |return 0;
+  |  |}
+  |  |
+  |
+scons: Configure: ".sconf_temp/conftest_3.o" is up to date.
+scons: Configure: The original builder output was:
+  |gcc -o .sconf_temp/conftest_3.o -c -I/usr/local/include .sconf_temp/conftest_3.c
+  |
+scons: Configure: ".sconf_temp/conftest_3" is up to date.
+scons: Configure: The original builder output was:
+  |gcc -o .sconf_temp/conftest_3 .sconf_temp/conftest_3.o -L/usr/local/lib -liulib -liulib -lSDL -lSDL_gfx
+  |
+scons: Configure: (cached) yes
+
+

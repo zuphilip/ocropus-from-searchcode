@@ -1,0 +1,15 @@
+syntax: glob
+openfst-*
+flann-*
+*.swp
+*~
+*.so
+.pynative
+flowrec
+clustrec
+# temporary files created by various scripts
+models/*
+book/*
+temp/*
+page/*
+deu-f/*

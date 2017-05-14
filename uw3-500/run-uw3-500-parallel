@@ -1,0 +1,47 @@
+#!/bin/bash -ex
+
+par=8
+
+if test -d book; then
+    echo "data already downloaded"
+else
+    wget http://iupr1.cs.uni-kl.de/~tmb/ocropus-data/uw3-500.tgz
+    tar -zxvf uw3-500.tgz
+fi
+
+# remove any old leftovers
+
+find book -name '*.aligned' | xargs rm -f
+find book -name '*.cseg.png' | xargs rm -f
+find book -name '*.pseg.png' | xargs rm -f
+find book -name '*.lattice' | xargs rm -f
+find book -name '??????.txt' | xargs rm -f
+
+# perform the initial recognition
+find book -name '*.bin.png' | xargs -P $par -n 50 ocropus-lattices 
+
+# integrate with the language model
+find book -name '*.lattice' | xargs -P $par -n 50 ocropus-ngraphs
+
+# compute the error rate
+ocropus-errs 'book/????/??????.gt.txt' > errors
+
+# align the lattice with the ground truth
+find book -name '*.lattice' | xargs -P $par -n 50 ocropus-align
+
+# extract individual character shapes
+rm -rf temp.h5 
+find book -name '*.lattice' | xargs -P $par -n 50 ocropus-lattices --extract temp.h5 --hdfappend
+mv temp.h5 book.h5
+
+# compute the tree VQ
+ocropus-tsplit -d book.h5 -o book.tsplit --maxsplit 100 -Q $par
+
+# compute the classifiers
+ocropus-tleaves -d book.h5 -s book.tsplit -o book.cmodel -Q $par
+
+# predict character level errors
+ocropus-db predict -m book.cmodel book.h5
+
+# apply the new model
+find book -name '*.bin.png' | xargs -P $par -n 100 ocropus-lattices -m book.cmodel

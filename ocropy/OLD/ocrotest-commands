@@ -1,0 +1,46 @@
+#!/bin/bash -x
+
+set -e
+
+die() {
+    echo ERROR "$*"
+    exit 255
+}
+
+TEST() {
+    echo '######' "$*"
+}
+
+rm -rf _test _test.*
+
+TEST binarize
+# ocropus-binarize isri0188/000[1-4].png -o _test || die
+ocropus-binarize isri0188/000[12].png -o _test || die
+cp isri0188/*.gt.txt _test/
+
+TEST pseg
+ocropus-pseg _test/????.png || die
+
+TEST linerec
+ocropus-lattices -O -m models/uw3-unlv-2011-03-07.023.cmodel _test/????/??????.png || die
+ocropus-align -O -l models/default.fst _test/????/??????.png || die
+
+TEST align-with-groundtruth
+ocropus-align -Q 0 -p _test/*.gt.txt -X -x _test.db
+ocropus-dbinfo _test.db
+ocrotest-dbcheck _test.db || echo "FAILED"
+
+TEST training
+ocropus-ctrain -K 8 -o _test.cmodel _test.db || die
+
+TEST reclassifying
+ocropus-lattices -O -m _test.cmodel _test/????/??????.png || die
+
+TEST extract-rseg
+ocropus-extract-rsegs _test/????/??????.png -o _test/rsegs.db || die
+
+TEST cluster-eps
+ocropus-cluster-eps _test/rsegs.db _test/rsegs-eps.db || die
+
+#TEST cluster-kmeans
+#ocropus-cluster-kmeans -n 10 -t clusters _test/rsegs-eps.db _test/rsegs-km.db || die

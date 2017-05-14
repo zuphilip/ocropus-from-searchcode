@@ -1,0 +1,11 @@
+This is a pretty hard document, a scanned, warped historical newspaper
+page.  It's mostly here as a test case to see how we can improve OCRopus 
+in the future.
+
+The script illustrates how to adjust the layout analysis parameters
+in ocropus-gpageseg for these kinds of documents. Note that there are
+some layout analysis errors.
+
+Better character recognition performance will require retraining models
+on historical books and newspaper prints (the current models are trained
+on modern scanned documents only).

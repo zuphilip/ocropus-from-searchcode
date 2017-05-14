@@ -1,0 +1,140 @@
+#!/usr/bin/python
+
+import sys,os,re,glob,cPickle,signal
+from pylab import *
+from multiprocessing import Pool
+
+import ocrolib
+from ocrolib import number_of_processors
+from ocrolib import plotutils,fstutils
+
+signal.signal(signal.SIGINT,lambda *args:sys.exit(1))
+
+from optparse import OptionParser
+prefix = "/usr/local/share/ocropus/models/"
+parser = OptionParser(usage="""
+%prog [options] image.png ...
+
+Recognize models using OCRopus line recognizers.
+
+Arguments can be a mix of image files, language models, and text files.
+Each image file should represent a text line to be recognized.
+If language models and text files are given, they are loaded as the default
+language model for subsequent images.
+
+For each input image, it reads image.png and image.bin.png, if it exists
+(FIXME: it doesn't yet; it just reads image.png and treats it as binary.)
+
+It produces the following output files:
+
+* image.fst -- recognition lattice
+* image.txt -- recognized output, combining the language model and recognition lattice
+* image.rseg.png -- raw segmentation
+* image.cseg.png -- aligned segmentation
+
+You can get a quick idea of how recognition is working by using the -d or -D arguments.
+""")
+parser.add_option("-m","--linerec",help="linerec model",default=prefix+"default.model")
+parser.add_option("-l","--langmod",help="language model",default=prefix+"default.fst")
+parser.add_option("-w","--lweight",help="language model weight",default=1.0,type=float)
+parser.add_option("-v","--verbose",help="verbose",action="store_true")
+parser.add_option("-d","--display",help="display result",action="store_true")
+parser.add_option("-D","--Display",help="display continuously",action="store_true")
+parser.add_option("-S","--suffix",help="suffix for writing results (e.g., '.gt')",default="")
+parser.add_option("-x","--gtextension",help="extension used for ground truth",default=None)
+parser.add_option("-F","--filelist",help="list of input files",default=None)
+parser.add_option("-Q","--parallel",type=int,default=number_of_processors(),help="number of parallel processes to use")
+
+(options,args) = parser.parse_args()
+
+if options.filelist is not None:
+    assert len(args)==0
+    args = open(options.filelist).readlines()
+    args = [s[:-1] for s in args]
+
+if len(args)==0:
+    parser.print_help()
+    sys.exit(0)
+
+# FIXME add language model weights
+assert options.lweight==1.0,"other language model weights not implemented yet"
+
+if options.Display: options.display = 1
+if options.display: ion()
+
+linerec = ocrolib.load_linerec(options.linerec)
+if options.verbose: linerec.info()
+
+# Load the default language model (can be overridden on the command line.).
+default_lmodel = ocrolib.OcroFST()
+default_lmodel.load(options.langmod)
+default_lmodel_path = options.langmod
+
+current_lmodel_name = None
+current_lmodel = None
+
+def process_line(job):
+    global current_lmodel_name,current_lmodel
+    line,lmodel_name = job
+
+    # if we can find a specific language model for it then perform alignment
+    if options.gtextension is not None:
+        path = ocrolib.fvariant(line,"txt",options.gtextension)
+        if os.path.exists(path):
+            if options.verbose: print "# gt",path
+            lmodel = ocrolib.read_lmodel_or_textlines(path)
+        else:
+            if options.verbose: print "# ground truth missing",path
+            return
+    else:
+        if lmodel_name!=current_lmodel_name:
+            current_lmodel = ocrolib.read_lmodel_or_textlines(lmodel_name)
+            current_lmodel_name = lmodel_name
+        if options.verbose: print "# lmodel",lmodel_name
+        lmodel = current_lmodel
+
+    # recognize the image with the given line recognizer and language model
+    # FIXME read the .bin.png file if it exists.
+    image = ocrolib.read_image_gray(line)
+    l = ocrolib.recognize_and_align(image,linerec,lmodel)
+    print "%6.2f\t%3d\t'%s'"%(l.cost,len(l.output),l.output)
+
+    # write the resulting files to disk
+    ocrolib.write_text(ocrolib.fvariant(line,"txt",options.suffix),l.output)
+    l.lattice.save(ocrolib.fvariant(line,"fst",options.suffix))
+    rseg_file = ocrolib.fvariant(line,"rseg",options.suffix)
+    ocrolib.write_line_segmentation(rseg_file,l.rseg)
+    if l.cseg is not None:
+        cseg_file = ocrolib.fvariant(line,"cseg",options.suffix)
+        ocrolib.write_line_segmentation(cseg_file,l.cseg)
+    cost_file = ocrolib.fvariant(line,"costs",options.suffix)
+    with open(cost_file,"w") as stream:
+        for i in range(len(l.costs)):
+            stream.write("%d %g\n"%(i+1,l.costs[i]))
+
+    # display if requested
+    if options.display:
+        clf()
+        axis = subplot(111)
+        plotutils.draw_aligned(l,axis)
+        if not options.Display: 
+            raw_input("hit ENTER to continue")
+        else:
+            ginput(1,timeout=1)
+
+lmodel_name = options.langmod
+
+jobs = []
+for line in args:
+    base,allext = ocrolib.allsplitext(line)
+    _,ext = os.path.splitext(line)
+    if ext=="txt" or ext=="fst":
+        lmodel_name = line
+        continue
+    jobs.append((line,lmodel_name))
+
+if options.parallel<2:
+    for job in jobs: process_line(job)
+else:
+    pool = Pool(processes=options.parallel)
+    result = pool.map(process_line,jobs)
